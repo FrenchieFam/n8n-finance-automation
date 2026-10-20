@@ -1,0 +1,118 @@
+{
+  "name": "bill-reminders",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        300
+      ],
+      "id": "e6c0b142-8ead-4740-8f9d-9f6a323ac758",
+      "name": "Manual Trigger"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH base AS (\n  SELECT\n    id, name, amount, currency, due_day, owner, remind_offsets,\n    date('now', 'localtime') AS today\n  FROM bills\n  WHERE status = 'unpaid'\n),\nstep1 AS (\n  SELECT *,\n    CASE\n      WHEN CAST(strftime('%d', today) AS INTEGER) <= due_day\n        THEN date(today, 'start of month')\n      ELSE date(today, 'start of month', '+1 month')\n    END AS month_start\n  FROM base\n),\nstep2 AS (\n  SELECT *,\n    CAST(strftime('%d', date(month_start, '+1 month', '-1 day')) AS INTEGER) AS last_day\n  FROM step1\n),\nstep3 AS (\n  SELECT *,\n    MIN(due_day, last_day) AS clamped_day\n  FROM step2\n),\nstep4 AS (\n  SELECT *,\n    date(month_start, '+' || (clamped_day - 1) || ' days') AS due_date\n  FROM step3\n),\nstep5 AS (\n  SELECT\n    id, name, amount, currency, owner, due_day, due_date, remind_offsets,\n    CAST(julianday(due_date) - julianday(today) AS INTEGER) AS days_until_due\n  FROM step4\n)\nSELECT * FROM step5\nWHERE ',' || remind_offsets || ',' LIKE '%,' || days_until_due || ',%'\nORDER BY days_until_due\nLIMIT 100;",
+        "options": {}
+      },
+      "type": "n8n-nodes-sqlite3.sqliteNode",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ],
+      "id": "ef30b1f5-0c0c-4fbf-8a71-81751fa50a9c",
+      "name": "Preview Due Bills",
+      "alwaysOutputData": true,
+      "credentials": {
+        "sqliteCredentialsApi": {
+          "name": "SQLite Database account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO notifications (created_at, bill_id, message, channel, delivered)\nWITH base AS (\n  SELECT\n    id, name, amount, currency, due_day, owner, remind_offsets,\n    date('now', 'localtime') AS today\n  FROM bills\n  WHERE status = 'unpaid'\n),\nstep1 AS (\n  SELECT *,\n    CASE\n      WHEN CAST(strftime('%d', today) AS INTEGER) <= due_day\n        THEN date(today, 'start of month')\n      ELSE date(today, 'start of month', '+1 month')\n    END AS month_start\n  FROM base\n),\nstep2 AS (\n  SELECT *,\n    CAST(strftime('%d', date(month_start, '+1 month', '-1 day')) AS INTEGER) AS last_day\n  FROM step1\n),\nstep3 AS (\n  SELECT *,\n    MIN(due_day, last_day) AS clamped_day\n  FROM step2\n),\nstep4 AS (\n  SELECT *,\n    date(month_start, '+' || (clamped_day - 1) || ' days') AS due_date\n  FROM step3\n),\nstep5 AS (\n  SELECT\n    id, name, amount, currency, owner, due_day, due_date, remind_offsets,\n    CAST(julianday(due_date) - julianday(today) AS INTEGER) AS days_until_due\n  FROM step4\n)\nSELECT\n  strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),\n  id,\n  '[' || owner || '] ' || name || ': ' || printf('%.2f', amount) || ' ' || currency\n    || ' due in ' || days_until_due || ' day(s) (due day ' || due_day || ')',\n  'sqlite',\n  0\nFROM step5\nWHERE ',' || remind_offsets || ',' LIKE '%,' || days_until_due || ',%';",
+        "options": {}
+      },
+      "type": "n8n-nodes-sqlite3.sqliteNode",
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ],
+      "id": "9b1b174a-82e1-49bb-88bf-5aeec7bedf41",
+      "name": "Insert Notifications",
+      "alwaysOutputData": true,
+      "credentials": {
+        "sqliteCredentialsApi": {
+          "name": "SQLite Database account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO run_log (run_at, workflow, status, detail) VALUES\n(strftime('%Y-%m-%dT%H:%M:%fZ','now'), 'bill-reminders', 'ok',\n'Ran due-bill reminder pass.');",
+        "options": {}
+      },
+      "type": "n8n-nodes-sqlite3.sqliteNode",
+      "typeVersion": 2,
+      "position": [
+        660,
+        300
+      ],
+      "id": "967714e8-477e-4e2f-b308-51d7925f2bb5",
+      "name": "Log Run",
+      "alwaysOutputData": true,
+      "credentials": {
+        "sqliteCredentialsApi": {
+          "name": "SQLite Database account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Preview Due Bills",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preview Due Bills": {
+      "main": [
+        [
+          {
+            "node": "Insert Notifications",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Notifications": {
+      "main": [
+        [
+          {
+            "node": "Log Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

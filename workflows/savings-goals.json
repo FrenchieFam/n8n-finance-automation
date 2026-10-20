@@ -1,0 +1,128 @@
+{
+  "name": "savings-goals",
+  "nodes": [
+    {
+      "id": "07304b8a-70e3-4fef-a927-532dd66fce7f",
+      "name": "Build Savings Report",
+      "type": "n8n-nodes-sqlite3.sqliteNode",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM (\nWITH summary AS (\n  SELECT\n    COUNT(*) AS goal_count,\n    SUM(target_amount) AS total_target,\n    SUM(current_amount) AS total_saved,\n    GROUP_CONCAT(\n      '• ' || name || ': ' || printf('%.2f', current_amount) || ' / ' || printf('%.2f', target_amount) || ' (Deadline: ' || IFNULL(deadline, 'None') || ')',\n      char(10)\n    ) AS goal_list\n  FROM savings_goals\n)\nSELECT\n  '**Savings Goals Update**' || char(10) || char(10) ||\n  '**Total Saved:** ' || printf('%.2f', total_saved) || ' / ' || printf('%.2f', total_target) || char(10) || char(10) ||\n  goal_list AS message\nFROM summary\n);",
+        "options": {}
+      },
+      "credentials": {
+        "sqliteCredentialsApi": {
+          "name": "SQLite Database account"
+        }
+      }
+    },
+    {
+      "id": "8874f0af-8e48-4f21-a302-80cee0e4ef47",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "months",
+              "monthsInterval": 1,
+              "triggerAtDayOfMonth": 1,
+              "triggerAtHour": 9,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "580cb6fd-e30c-46fe-be59-26faf2d80c61",
+      "name": "Send to Discord",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ],
+      "parameters": {
+        "authentication": "webhook",
+        "content": "={{ $json.message }}"
+      },
+      "credentials": {
+        "discordWebhookApi": {
+          "name": "Discord Webhook account"
+        }
+      }
+    },
+    {
+      "id": "78570343-cbdf-4947-ba18-a896ff87b5ec",
+      "name": "Log Run",
+      "type": "n8n-nodes-sqlite3.sqliteNode",
+      "typeVersion": 2,
+      "position": [
+        660,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO run_log (run_at, workflow, status, detail) VALUES (strftime('%Y-%m-%dT%H:%M:%fZ','now'), 'savings-goals', 'ok', 'Monthly savings goal report sent.');",
+        "options": {}
+      },
+      "credentials": {
+        "sqliteCredentialsApi": {
+          "name": "SQLite Database account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Build Savings Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Savings Report": {
+      "main": [
+        [
+          {
+            "node": "Send to Discord",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send to Discord": {
+      "main": [
+        [
+          {
+            "node": "Log Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true,
+    "timezone": "Europe/Berlin"
+  }
+}

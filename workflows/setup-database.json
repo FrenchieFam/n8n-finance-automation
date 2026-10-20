@@ -1,0 +1,181 @@
+{
+  "name": "setup-database",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        300
+      ],
+      "id": "20000000-0000-4000-8000-000000000001",
+      "name": "Manual Trigger"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "CREATE TABLE IF NOT EXISTS bills (id INTEGER PRIMARY KEY, name TEXT, amount REAL, currency TEXT, due_day INTEGER, owner TEXT, category TEXT, status TEXT, last_paid TEXT, notes TEXT, remind_offsets TEXT NOT NULL DEFAULT '7,1,0');",
+        "options": {}
+      },
+      "type": "n8n-nodes-sqlite3.sqliteNode",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ],
+      "id": "20000000-0000-4000-8000-000000000002",
+      "name": "Create Bills Table",
+      "alwaysOutputData": true,
+      "credentials": {
+        "sqliteCredentialsApi": {
+          "name": "SQLite Database account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "CREATE TABLE IF NOT EXISTS notifications (id INTEGER PRIMARY KEY, created_at TEXT, bill_id INTEGER, message TEXT, channel TEXT, delivered INTEGER DEFAULT 0);",
+        "options": {}
+      },
+      "type": "n8n-nodes-sqlite3.sqliteNode",
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ],
+      "id": "96116bca-4f07-48b7-920c-bbb58d44db2a",
+      "name": "Create Notifications Table",
+      "alwaysOutputData": true,
+      "credentials": {
+        "sqliteCredentialsApi": {
+          "name": "SQLite Database account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "CREATE TABLE IF NOT EXISTS run_log (id INTEGER PRIMARY KEY, run_at TEXT, workflow TEXT, status TEXT, detail TEXT);",
+        "options": {}
+      },
+      "type": "n8n-nodes-sqlite3.sqliteNode",
+      "typeVersion": 2,
+      "position": [
+        660,
+        300
+      ],
+      "id": "542d855c-d70e-4cd4-9bc3-89672ccd7fe0",
+      "name": "Create Run Log Table",
+      "alwaysOutputData": true,
+      "credentials": {
+        "sqliteCredentialsApi": {
+          "name": "SQLite Database account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT OR IGNORE INTO bills (id, name, amount, currency, due_day, owner, category, status, last_paid, notes) VALUES\n(1, 'Electricity', 68.40, 'EUR', 5, 'shared', 'utilities', 'unpaid', NULL, 'monthly direct debit'),\n(2, 'Internet', 39.99, 'EUR', 12, 'shared', 'utilities', 'unpaid', NULL, 'fiber contract'),\n(3, 'Rent', 1150.00, 'EUR', 1, 'shared', 'housing', 'unpaid', NULL, 'landlord transfer'),\n(4, 'Spotify Duo', 14.99, 'EUR', 18, 'me', 'subs', 'unpaid', NULL, 'family plan'),\n(5, 'Netflix', 13.99, 'EUR', 22, 'partner', 'subs', 'unpaid', NULL, 'shared account'),\n(6, 'Water', 31.20, 'EUR', 25, 'shared', 'utilities', 'unpaid', NULL, 'quarterly estimated');",
+        "options": {}
+      },
+      "type": "n8n-nodes-sqlite3.sqliteNode",
+      "typeVersion": 2,
+      "position": [
+        880,
+        300
+      ],
+      "id": "20000000-0000-4000-8000-000000000003",
+      "name": "Seed Bills",
+      "alwaysOutputData": true,
+      "credentials": {
+        "sqliteCredentialsApi": {
+          "name": "SQLite Database account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO run_log (run_at, workflow, status, detail) VALUES (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 'setup-database', 'ok', 'Schema initialized; mock bills seeded with INSERT OR IGNORE.');",
+        "options": {}
+      },
+      "type": "n8n-nodes-sqlite3.sqliteNode",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        300
+      ],
+      "id": "20000000-0000-4000-8000-000000000004",
+      "name": "Log Setup",
+      "credentials": {
+        "sqliteCredentialsApi": {
+          "name": "SQLite Database account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "type": "main",
+            "index": 0,
+            "node": "Create Bills Table"
+          }
+        ]
+      ]
+    },
+    "Create Bills Table": {
+      "main": [
+        [
+          {
+            "type": "main",
+            "index": 0,
+            "node": "Create Notifications Table"
+          }
+        ]
+      ]
+    },
+    "Create Notifications Table": {
+      "main": [
+        [
+          {
+            "type": "main",
+            "index": 0,
+            "node": "Create Run Log Table"
+          }
+        ]
+      ]
+    },
+    "Create Run Log Table": {
+      "main": [
+        [
+          {
+            "type": "main",
+            "index": 0,
+            "node": "Seed Bills"
+          }
+        ]
+      ]
+    },
+    "Seed Bills": {
+      "main": [
+        [
+          {
+            "type": "main",
+            "index": 0,
+            "node": "Log Setup"
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

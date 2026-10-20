@@ -1,0 +1,132 @@
+{
+  "name": "monthly-overview",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 0 9 1 * *"
+            }
+          ]
+        }
+      },
+      "id": "6c5a8f37-1d65-49cb-b91b-b73f6c575d79",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM (\nWITH base AS (\n  SELECT id, name, amount, currency, due_day, owner, status,\n    date('now', 'localtime') AS today\n  FROM bills WHERE status = 'unpaid'\n),\nstep1 AS (\n  SELECT *,\n    CASE WHEN CAST(strftime('%d', today) AS INTEGER) <= due_day\n      THEN date(today, 'start of month')\n      ELSE date(today, 'start of month', '+1 month') END AS month_start\n  FROM base\n),\nstep2 AS (\n  SELECT *, CAST(strftime('%d', date(month_start, '+1 month', '-1 day')) AS INTEGER) AS last_day\n  FROM step1\n),\nstep3 AS (\n  SELECT *, MIN(due_day, last_day) AS clamped_day FROM step2\n),\nstep4 AS (\n  SELECT *, date(month_start, '+' || (clamped_day - 1) || ' days') AS due_date FROM step3\n),\nsummary AS (\n  SELECT\n    COUNT(*) AS bill_count,\n    SUM(amount) AS total_amount,\n    GROUP_CONCAT(\n      '• ' || name || ' — ' || printf('%.2f', amount) || ' ' || currency\n        || ' — due ' || substr('JanFebMarAprMayJunJulAugSepOctNovDec',\n             CAST(strftime('%m', due_date) AS INTEGER) * 3 - 2, 3)\n        || ' ' || strftime('%d', due_date),\n      char(10) ORDER BY due_date\n    ) AS bill_list\n  FROM step4\n)\nSELECT\n  '**Monthly Overview — ' ||\n  CASE CAST(strftime('%m', 'now') AS INTEGER)\n    WHEN 1 THEN 'January'   WHEN 2 THEN 'February' WHEN 3 THEN 'March'\n    WHEN 4 THEN 'April'     WHEN 5 THEN 'May'      WHEN 6 THEN 'June'\n    WHEN 7 THEN 'July'      WHEN 8 THEN 'August'   WHEN 9 THEN 'September'\n    WHEN 10 THEN 'October'  WHEN 11 THEN 'November' WHEN 12 THEN 'December'\n  END || ' ' || strftime('%Y', 'now') || '**' || char(10) ||\n  '**Total:** ' || printf('%.2f', total_amount) || ' EUR across ' ||\n  bill_count || ' bills' || char(10) || char(10) ||\n  bill_list AS message\nFROM summary\n);",
+        "options": {}
+      },
+      "id": "24847577-7939-407d-b299-44dc08717418",
+      "name": "Build Monthly Overview",
+      "type": "n8n-nodes-sqlite3.sqliteNode",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "sqliteCredentialsApi": {
+          "name": "SQLite Database account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "webhook",
+        "content": "={{ $json.message }}"
+      },
+      "id": "0cd133dd-1505-44b6-819e-5cd816c14f64",
+      "name": "Send to Discord",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "alwaysOutputData": true,
+      "credentials": {
+        "discordWebhookApi": {
+          "name": "Discord Webhook account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO run_log (run_at, workflow, status, detail) VALUES\n(strftime('%Y-%m-%dT%H:%M:%fZ','now'), 'monthly-overview', 'ok',\n'Monthly overview sent to Discord.');",
+        "options": {}
+      },
+      "id": "66a382e1-4261-4f9c-bdc0-717cc6de23f3",
+      "name": "Log Monthly Overview",
+      "type": "n8n-nodes-sqlite3.sqliteNode",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "sqliteCredentialsApi": {
+          "name": "SQLite Database account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Build Monthly Overview": {
+      "main": [
+        [
+          {
+            "node": "Send to Discord",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send to Discord": {
+      "main": [
+        [
+          {
+            "node": "Log Monthly Overview",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Build Monthly Overview",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true,
+    "timezone": "Europe/Berlin",
+    "binaryMode": "separate"
+  }
+}

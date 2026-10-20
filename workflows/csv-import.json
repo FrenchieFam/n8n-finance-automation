@@ -1,0 +1,214 @@
+{
+  "name": "csv-import",
+  "nodes": [
+    {
+      "id": "201cb990-a352-4e47-b062-37e2cb205d1e",
+      "name": "Form Trigger",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.6,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "formTitle": "Import EECU CSV",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "csvfile",
+              "fieldName": "csvfile",
+              "fieldType": "file",
+              "multipleFiles": false,
+              "acceptFileTypes": ".csv",
+              "requiredField": true
+            }
+          ]
+        },
+        "responseMode": "lastNode",
+        "options": {
+          "path": "import-eecu-csv",
+          "appendAttribution": false
+        }
+      }
+    },
+    {
+      "id": "f9b6e62b-b665-4308-a912-b7a3fbfc6aa6",
+      "name": "Extract From File",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.2,
+      "position": [
+        220,
+        300
+      ],
+      "parameters": {
+        "operation": "csv",
+        "binaryPropertyName": "csvfile",
+        "options": {
+          "headerRow": true,
+          "fromLine": 4
+        }
+      }
+    },
+    {
+      "id": "013fa4db-4432-4e8f-8a1e-00eabf9f2647",
+      "name": "Filter",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.4,
+      "position": [
+        440,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "nonzero-amount",
+              "leftValue": "={{ -1 * (parseFloat($json['Amount Debit'] || 0) + parseFloat($json['Amount Credit'] || 0)) }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "573f65cc-786e-4e30-9c43-09793ca7dc92",
+      "name": "Log Run",
+      "type": "n8n-nodes-sqlite3.sqliteNode",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO run_log (run_at, workflow, status, detail) VALUES\n(strftime('%Y-%m-%dT%H:%M:%fZ','now'), 'csv-import', 'ok',\n'Processed CSV import via dedup external_id.');",
+        "options": {}
+      },
+      "executeOnce": true,
+      "credentials": {
+        "sqliteCredentialsApi": {
+          "name": "SQLite Database account"
+        }
+      }
+    },
+    {
+      "id": "f96f618f-856f-4c76-9b59-27b6779b6ee0",
+      "name": "Insert Expense",
+      "type": "n8n-nodes-sqlite3.sqliteNode",
+      "typeVersion": 2,
+      "position": [
+        880,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "allowExpressions": false,
+        "query": "INSERT OR IGNORE INTO expenses\n  (date, description, amount, currency, category, owner, source, external_id, notes, created_at)\nVALUES ($1, $2, $3, 'USD', NULL, 'me', 'csv', $4, $5, datetime('now'));",
+        "options": {
+          "queryReplacement": "={{ [$json.Date.trim().split('/')[2] + '-' + $json.Date.trim().split('/')[0] + '-' + $json.Date.trim().split('/')[1], ($json.Description || '').trim(), -1 * (parseFloat($json['Amount Debit'] || 0) + parseFloat($json['Amount Credit'] || 0)), 'eecu:' + $json['Transaction Number'].trim(), ($json.Memo || '').trim()] }}"
+        }
+      },
+      "alwaysOutputData": true,
+      "credentials": {
+        "sqliteCredentialsApi": {
+          "name": "SQLite Database account"
+        }
+      }
+    },
+    {
+      "id": "a1c444b9-1457-4b04-8fbe-ca5f177b6fb2",
+      "name": "Split In Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        660,
+        300
+      ],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Form Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract From File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract From File": {
+      "main": [
+        [
+          {
+            "node": "Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Expense": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split In Batches": {
+      "main": [
+        [
+          {
+            "node": "Log Run",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Insert Expense",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true
+  }
+}
