@@ -165,7 +165,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO expenses\n  (date, description, amount, currency, category, owner, source, receipt_path, notes, created_at)\nVALUES\n  (IFNULL($1, date('now')),\n   IFNULL($2, 'Unknown Merchant'),\n   IFNULL($3, 0),\n   IFNULL($4, 'USD'),\n   IFNULL($5, 'other'),\n   $6,\n   'receipt',\n   $7,\n   IFNULL($8, 'OCR via qwen2.5vl'),\n   datetime('now'));",
+        "query": "INSERT INTO expenses\n  (date, description, amount, currency, category, owner, source, receipt_path, notes, created_at)\nVALUES ($1, $2, $3, $4, $5, $6, 'receipt', $7, $8, datetime('now'));",
         "options": {
           "queryReplacement": "={{ [$json.date ?? null, $json.merchant ?? null, $json.total ?? null, $json.currency ?? null, $json.category ?? null, $('Form Trigger').first().json.owner, $('Save Receipt Image').item.json.path, 'OCR via qwen2.5vl'] }}"
         }
@@ -251,7 +251,64 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "try {\n  const msg = $input.first().json.message?.content;\n  if (!msg || msg.trim() === '' || msg.trim() === '{}') {\n    throw new Error('Empty or missing content from Ollama');\n  }\n  const parsed = JSON.parse(msg);\n  if (!parsed.date || !parsed.merchant) {\n    throw new Error('Required fields missing from parsed JSON');\n  }\n  return {\n    json: {\n      ...parsed,\n      _error: false\n    }\n  };\n} catch (e) {\n  return {\n    json: {\n      _error: true\n    }\n  };\n}"
+        "jsCode": "const allowedCategories = new Set([\n  'groceries', 'dining', 'transport', 'housing', 'utilities',\n  'subs', 'shopping', 'entertainment', 'health', 'other',\n]);\n\nreturn $input.all().map((item, index) => {\n  try {\n    const msg = item.json.message?.content;\n    if (typeof msg !== 'string' || msg.trim() === '') {\n      throw new Error('empty or missing content from Ollama');\n    }\n    let parsed;\n    try {\n      parsed = JSON.parse(msg);\n    } catch {\n      throw new Error('malformed or incomplete JSON from Ollama');\n    }\n    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {\n      throw new Error('expected a receipt object');\n    }\n    if (typeof parsed.date !== 'string' || parsed.date.trim() === '') {\n      throw new Error('missing date');\n    }\n    const date = parsed.date.trim();\n    const timestamp = Date.parse(date);\n    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date) || !Number.isFinite(timestamp)\n        || new Date(timestamp).toISOString().slice(0, 10) !== date) {\n      throw new Error('invalid date; expected a real YYYY-MM-DD date');\n    }\n    if (typeof parsed.merchant !== 'string' || parsed.merchant.trim() === '') {\n      throw new Error('missing merchant');\n    }\n    if (parsed.total === null || parsed.total === undefined\n        || (typeof parsed.total === 'string' && parsed.total.trim() === '')) {\n      throw new Error('missing total');\n    }\n    if (typeof parsed.total !== 'number' || !Number.isFinite(parsed.total)) {\n      throw new Error('invalid total; expected a finite number');\n    }\n    if (typeof parsed.currency !== 'string' || parsed.currency.trim() === '') {\n      throw new Error('missing currency');\n    }\n    const currency = parsed.currency.trim().toUpperCase();\n    if (!['USD', 'EUR'].includes(currency)) {\n      throw new Error('unsupported currency; expected USD or EUR');\n    }\n    if (typeof parsed.category !== 'string' || parsed.category.trim() === '') {\n      throw new Error('missing category');\n    }\n    const category = parsed.category.trim().toLowerCase();\n    if (!allowedCategories.has(category)) {\n      throw new Error('invalid category; expected one of ' + [...allowedCategories].join(', '));\n    }\n    return {\n      json: { date, merchant: parsed.merchant.trim(), total: parsed.total, currency, category, _error: false },\n      pairedItem: { item: index },\n    };\n  } catch (e) {\n    return {\n      json: { _error: true, error: 'Receipt rejected: ' + e.message },\n      pairedItem: { item: index },\n    };\n  }\n});"
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "receipt-valid",
+              "leftValue": "={{ $json._error === false }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "86ce098d-5df7-4895-82a4-6523ac5513df",
+      "name": "Receipt Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        1216,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO notifications (created_at, bill_id, message, channel, delivered)\nVALUES (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), NULL, $1, 'receipt-ocr', 0);",
+        "options": {
+          "queryReplacement": "={{ [$json.error] }}"
+        }
+      },
+      "type": "n8n-nodes-sqlite3.sqliteNode",
+      "typeVersion": 2,
+      "position": [
+        1552,
+        528
+      ],
+      "id": "a26e65d1-6f78-4da3-9dc4-cd955b585b35",
+      "name": "Rejected",
+      "alwaysOutputData": true,
+      "credentials": {
+        "sqliteCredentialsApi": {
+          "name": "SQLite Database account"
+        }
       }
     }
   ],
@@ -283,13 +340,6 @@
         [
           {
             "node": "Insert Receipt Expense",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Split In Batches",
             "type": "main",
             "index": 0
           }
@@ -373,7 +423,36 @@
       "main": [
         [
           {
+            "node": "Receipt Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Receipt Valid?": {
+      "main": [
+        [
+          {
             "node": "Filter",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rejected": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches",
             "type": "main",
             "index": 0
           }
@@ -407,6 +486,15 @@
         "Save Receipt Image"
       ],
       "description": "Split uploaded files and save each image with its receipt path."
+    },
+    {
+      "id": "cb80dbaa-19d7-4786-937f-847014e4b3c2",
+      "name": "Store valid receipts",
+      "description": "Insert expenses only after receipt validation succeeds.",
+      "nodeNames": [
+        "Filter",
+        "Insert Receipt Expense"
+      ]
     }
   ]
 }

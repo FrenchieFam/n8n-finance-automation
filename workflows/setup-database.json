@@ -115,6 +115,90 @@
           "name": "SQLite Database account"
         }
       }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "CREATE TABLE IF NOT EXISTS expenses (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  date TEXT NOT NULL,\n  description TEXT NOT NULL,\n  amount REAL NOT NULL,\n  currency TEXT NOT NULL DEFAULT 'USD',\n  category TEXT,\n  owner TEXT NOT NULL DEFAULT 'me',\n  source TEXT NOT NULL,\n  receipt_path TEXT,\n  external_id TEXT,\n  notes TEXT,\n  created_at TEXT NOT NULL\n);",
+        "options": {}
+      },
+      "type": "n8n-nodes-sqlite3.sqliteNode",
+      "typeVersion": 2,
+      "position": [
+        220,
+        560
+      ],
+      "id": "72efb12e-cef4-43c3-a1e3-b9f5d41a6d68",
+      "name": "Create Expenses Table",
+      "alwaysOutputData": true,
+      "credentials": {
+        "sqliteCredentialsApi": {
+          "name": "SQLite Database account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "CREATE UNIQUE INDEX IF NOT EXISTS idx_expenses_external ON expenses(external_id) WHERE external_id IS NOT NULL;",
+        "options": {}
+      },
+      "type": "n8n-nodes-sqlite3.sqliteNode",
+      "typeVersion": 2,
+      "position": [
+        440,
+        560
+      ],
+      "id": "ee6df7d8-c09b-46c6-bbad-02f6ab5ef062",
+      "name": "Create Expenses External ID Index",
+      "alwaysOutputData": true,
+      "credentials": {
+        "sqliteCredentialsApi": {
+          "name": "SQLite Database account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "CREATE TABLE IF NOT EXISTS savings_goals (\n id INTEGER PRIMARY KEY AUTOINCREMENT,\n name TEXT NOT NULL,\n target_amount REAL NOT NULL,\n current_amount REAL NOT NULL DEFAULT 0,\n deadline TEXT,\n owner TEXT NOT NULL DEFAULT 'shared',\n created_at TEXT NOT NULL\n);",
+        "options": {}
+      },
+      "type": "n8n-nodes-sqlite3.sqliteNode",
+      "typeVersion": 2,
+      "position": [
+        660,
+        560
+      ],
+      "id": "a0396511-07d2-42d6-9489-529aee6303f8",
+      "name": "Create Savings Goals Table",
+      "alwaysOutputData": true,
+      "credentials": {
+        "sqliteCredentialsApi": {
+          "name": "SQLite Database account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH mock_goals (name, target_amount, current_amount, deadline, owner) AS (\n  VALUES\n    ('[DEMO] Emergency fund', 3000.00, 600.00, date('now', '+12 months'), 'shared'),\n    ('[DEMO] Weekend getaway', 800.00, 200.00, date('now', '+6 months'), 'shared'),\n    ('[DEMO] Home repairs', 1500.00, 300.00, date('now', '+9 months'), 'shared')\n)\nINSERT INTO savings_goals (name, target_amount, current_amount, deadline, owner, created_at)\nSELECT mock.name, mock.target_amount, mock.current_amount, mock.deadline, mock.owner, datetime('now')\nFROM mock_goals AS mock\nWHERE NOT EXISTS (\n  SELECT 1 FROM savings_goals AS existing\n  WHERE existing.name = mock.name AND existing.owner = mock.owner\n);",
+        "options": {}
+      },
+      "type": "n8n-nodes-sqlite3.sqliteNode",
+      "typeVersion": 2,
+      "position": [
+        880,
+        560
+      ],
+      "id": "4f047c53-7fe6-4d98-8a2e-9bec84a69f25",
+      "name": "Seed Savings Goals",
+      "alwaysOutputData": true,
+      "credentials": {
+        "sqliteCredentialsApi": {
+          "name": "SQLite Database account"
+        }
+      }
     }
   ],
   "connections": {
@@ -125,6 +209,11 @@
             "type": "main",
             "index": 0,
             "node": "Create Bills Table"
+          },
+          {
+            "node": "Create Expenses Table",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -172,10 +261,56 @@
           }
         ]
       ]
+    },
+    "Create Expenses Table": {
+      "main": [
+        [
+          {
+            "node": "Create Expenses External ID Index",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Expenses External ID Index": {
+      "main": [
+        [
+          {
+            "node": "Create Savings Goals Table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Savings Goals Table": {
+      "main": [
+        [
+          {
+            "node": "Seed Savings Goals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": false,
   "settings": {
     "executionOrder": "v1"
-  }
+  },
+  "nodeGroups": [
+    {
+      "id": "b3957d13-a078-401a-aafe-bfb512895960",
+      "name": "Prepare budget storage",
+      "description": "Create expense and savings storage, protect imported transaction IDs, and seed three synthetic savings goals.",
+      "nodeNames": [
+        "Create Expenses Table",
+        "Create Expenses External ID Index",
+        "Create Savings Goals Table",
+        "Seed Savings Goals"
+      ]
+    }
+  ]
 }
