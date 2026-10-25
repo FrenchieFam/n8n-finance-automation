@@ -1,0 +1,412 @@
+{
+  "name": "receipt-ocr",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Upload Receipts",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "receipts",
+              "fieldType": "file",
+              "fieldName": "receipts",
+              "acceptFileTypes": "image/*",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "owner",
+              "fieldType": "dropdown",
+              "fieldName": "owner",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "user1"
+                  },
+                  {
+                    "option": "user2"
+                  },
+                  {
+                    "option": "shared"
+                  }
+                ]
+              },
+              "requiredField": true
+            }
+          ]
+        },
+        "responseMode": "lastNode",
+        "options": {
+          "appendAttribution": false,
+          "path": "receipt-ocr"
+        }
+      },
+      "id": "5e7d23e7-0d3b-495a-9907-7a376e531797",
+      "name": "Form Trigger",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.6,
+      "position": [
+        -48,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "$binary",
+        "include": "allOtherFields",
+        "options": {
+          "destinationFieldName": "data"
+        }
+      },
+      "id": "7c069244-8a7f-410b-8eee-d82606631c80",
+      "name": "Split Out",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO run_log (run_at, workflow, status, detail) VALUES\n(strftime('%Y-%m-%dT%H:%M:%fZ','now'), 'receipt-ocr', 'ok',\n'Processed receipt batch.');",
+        "options": {}
+      },
+      "id": "5ee6a045-db4d-4b2e-a4a5-9c5408f2038a",
+      "name": "Log Run",
+      "type": "n8n-nodes-sqlite3.sqliteNode",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        304
+      ],
+      "executeOnce": true,
+      "credentials": {
+        "sqliteCredentialsApi": {
+          "name": "SQLite Database account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "binaryToPropery",
+        "binaryPropertyName": "={{ Object.keys($binary)[0] }}",
+        "options": {}
+      },
+      "id": "0597fbb5-2568-415f-884b-a931fdad2334",
+      "name": "Image To Base64",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.2,
+      "position": [
+        672,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:11434/api/chat",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"qwen2.5vl:7b-q4_K_M\",\n  \"stream\": false,\n  \"format\": {\n    \"type\": \"object\",\n    \"properties\": {\n      \"date\": {\n        \"type\": \"string\"\n      },\n      \"merchant\": {\n        \"type\": \"string\"\n      },\n      \"total\": {\n        \"type\": \"number\"\n      },\n      \"currency\": {\n        \"type\": \"string\"\n      },\n      \"category\": {\n        \"type\": \"string\",\n        \"enum\": [\n          \"groceries\",\n          \"dining\",\n          \"transport\",\n          \"housing\",\n          \"utilities\",\n          \"subs\",\n          \"shopping\",\n          \"entertainment\",\n          \"health\",\n          \"other\"\n        ]\n      }\n    },\n    \"required\": [\n      \"date\",\n      \"merchant\",\n      \"total\",\n      \"currency\",\n      \"category\"\n    ]\n  },\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Extract receipt data. date in YYYY-MM-DD. total = final amount paid. If date is ambiguous use the most plausible recent date. Return only JSON.\",\n      \"images\": [\n        \"{{ $json.data }}\"\n      ]\n    }\n  ],\n  \"options\": {\n    \"num_ctx\": 8192\n  }\n}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 180000
+        }
+      },
+      "id": "cd89b54a-7ffc-4b76-bd0c-ce8f2cf41791",
+      "name": "Ollama Extract",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        880,
+        304
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "no-error",
+              "leftValue": "={{ $json._error }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "6d899f8e-aac2-44ab-bc1b-a7ee71f6f2f1",
+      "name": "Filter",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.4,
+      "position": [
+        1328,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO expenses\n  (date, description, amount, currency, category, owner, source, receipt_path, notes, created_at)\nVALUES\n  (IFNULL($1, date('now')),\n   IFNULL($2, 'Unknown Merchant'),\n   IFNULL($3, 0),\n   IFNULL($4, 'USD'),\n   IFNULL($5, 'other'),\n   $6,\n   'receipt',\n   $7,\n   IFNULL($8, 'OCR via qwen2.5vl'),\n   datetime('now'));",
+        "options": {
+          "queryReplacement": "={{ [$json.date ?? null, $json.merchant ?? null, $json.total ?? null, $json.currency ?? null, $json.category ?? null, $('Form Trigger').first().json.owner, $('Save Receipt Image').item.json.path, 'OCR via qwen2.5vl'] }}"
+        }
+      },
+      "id": "80569ba5-40b5-4127-983f-60f1d6f24b6d",
+      "name": "Insert Receipt Expense",
+      "type": "n8n-nodes-sqlite3.sqliteNode",
+      "typeVersion": 2,
+      "position": [
+        1552,
+        304
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "sqliteCredentialsApi": {
+          "name": "SQLite Database account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "392a2726-1dbf-46b2-b4cf-08cd2ccd45e2",
+      "name": "Split In Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        448,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "receipt-path",
+              "name": "path",
+              "type": "string",
+              "value": "=/data/receipts/{{$now.format('yyyy-MM')}}/{{ ($binary.data ?? Object.values($binary)[0]).fileName }}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "stripBinary": false
+        }
+      },
+      "id": "a543fff6-4a43-4796-be99-9f6dfa83d6ed",
+      "name": "Prepare Receipt Path",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        336,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "fileName": "={{ $json.path }}",
+        "dataPropertyName": "={{ $binary.data ? 'data' : Object.keys($binary)[0] }}",
+        "options": {}
+      },
+      "id": "8a395ff1-76ce-4fb8-9e16-771c5846c80d",
+      "name": "Save Receipt Image",
+      "type": "n8n-nodes-base.writeBinaryFile",
+      "typeVersion": 1,
+      "position": [
+        448,
+        304
+      ]
+    },
+    {
+      "id": "a03e3aa2-6c99-4b32-bddf-51c715dcd360",
+      "name": "Parse Extraction",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1104,
+        304
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "try {\n  const msg = $input.first().json.message?.content;\n  if (!msg || msg.trim() === '' || msg.trim() === '{}') {\n    throw new Error('Empty or missing content from Ollama');\n  }\n  const parsed = JSON.parse(msg);\n  if (!parsed.date || !parsed.merchant) {\n    throw new Error('Required fields missing from parsed JSON');\n  }\n  return {\n    json: {\n      ...parsed,\n      _error: false\n    }\n  };\n} catch (e) {\n  return {\n    json: {\n      _error: true\n    }\n  };\n}"
+      }
+    }
+  ],
+  "connections": {
+    "Form Trigger": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Image To Base64": {
+      "main": [
+        [
+          {
+            "node": "Ollama Extract",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter": {
+      "main": [
+        [
+          {
+            "node": "Insert Receipt Expense",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Split In Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Receipt Expense": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split In Batches": {
+      "main": [
+        [
+          {
+            "node": "Log Run",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Image To Base64",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "Prepare Receipt Path",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Receipt Path": {
+      "main": [
+        [
+          {
+            "node": "Save Receipt Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Receipt Image": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Extract": {
+      "main": [
+        [
+          {
+            "node": "Parse Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Extraction": {
+      "main": [
+        [
+          {
+            "node": "Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true,
+    "binaryMode": "separate"
+  },
+  "nodeGroups": [
+    {
+      "id": "28cb7f5a-5ce8-48e4-9a1e-8f1cbf18baf4",
+      "name": "Extract Receipt Data",
+      "nodeNames": [
+        "Image To Base64",
+        "Ollama Extract",
+        "Parse Extraction"
+      ],
+      "description": "Convert each receipt to base64 and extract structured fields with local Ollama."
+    },
+    {
+      "id": "186737f7-8c39-4b5b-babe-79db9076a52d",
+      "name": "Save Uploaded Receipts",
+      "nodeNames": [
+        "Split Out",
+        "Prepare Receipt Path",
+        "Save Receipt Image"
+      ],
+      "description": "Split uploaded files and save each image with its receipt path."
+    }
+  ]
+}

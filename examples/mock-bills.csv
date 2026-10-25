@@ -1,0 +1,7 @@
+id,name,amount,currency,due_day,owner,category,status,last_paid,notes
+1,Electricity,68.40,EUR,5,shared,utilities,unpaid,,monthly direct debit
+2,Internet,39.99,EUR,12,shared,utilities,unpaid,,fiber contract
+3,Rent,1150.00,EUR,1,shared,housing,unpaid,,landlord transfer
+4,Spotify Duo,14.99,EUR,18,user1,subs,unpaid,,family plan
+5,Netflix,13.99,EUR,22,partner,subs,unpaid,,shared account
+6,Water,31.20,EUR,25,shared,utilities,unpaid,,quarterly estimated

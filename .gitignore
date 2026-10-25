@@ -1,0 +1,35 @@
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*credentials*.json
+*.pem
+*.key
+
+# Financial data, SQLite databases, and backups
+/data/
+/receipts/
+/backups/
+*.sqlite
+*.sqlite3
+*.db
+*.sqlite-*
+*.sqlite3-*
+*.db-*
+*.bak
+*.log
+
+# Local tooling
+__pycache__/
+.venv/
+.DS_Store
+Thumbs.db
+
+# Financial file protection
+/imports/
+/exports/
+/statements/
+/screenshots/
+/private/
+*.csv
+!/examples/mock-*.csv
